@@ -25,6 +25,8 @@ static int g_isActiveChannel = -1; // if >=0, read active state from this channe
 static int g_lastRelayState = -1; // -1 unknown
 static float g_alarmThreshold = 80.0f; // degrees C - if exceeded, force relay off
 static int g_staleTimeoutSeconds = 60; // seconds - if no recent DS18B20 reading, force relay off
+static float g_minTemp = 5.0f;
+static float g_maxTemp = 40.0f;
 static int g_driverEnabled = 0; // flag: driver is active, manual relay commands are blocked
 static int g_initialized = 0; // flag: driver has been initialized via startDriver
 
@@ -35,11 +37,15 @@ static int g_lastPublishedMode = -1;
 
 // Command handler for MQTT setpoint control: THERMOSTAT_Set <temperature>
 static commandResult_t Cmd_Thermostat_Set(const void* context, const char* cmd, const char* args, int flags) {
+    Tokenizer_TokenizeString(args, 0);
     int rc = Tokenizer_GetArgsCount();
     
     // If only one argument, treat it as setpoint value from Home Assistant
     if (rc == 1) {
-        g_setpoint = Tokenizer_GetArgFloatDefault(1, g_setpoint);
+        g_setpoint = Tokenizer_GetArgFloatDefault(0, g_setpoint);
+        if (g_setpointChannel >= 0) {
+            CHANNEL_SetSmart(g_setpointChannel, g_setpoint, 0);
+        }
         addLogAdv(LOG_INFO, LOG_FEATURE_GENERAL, "Thermostat setpoint changed to %.2f°C\n", g_setpoint);
         // Force republish on next cycle
         g_lastPublishedSetpoint = -999.0f;
@@ -48,38 +54,55 @@ static commandResult_t Cmd_Thermostat_Set(const void* context, const char* cmd, 
     
     // If multiple arguments, treat it as configuration (from startDriver or manual config)
     if (rc >= 1) {
-        g_relayChannel = Tokenizer_GetArgIntegerDefault(1, -1);
+        g_relayChannel = Tokenizer_GetArgIntegerDefault(0, -1);
     }
     if (rc >= 2) {
-        g_setpoint = Tokenizer_GetArgFloatDefault(2, g_setpoint);
+        g_setpoint = Tokenizer_GetArgFloatDefault(1, g_setpoint);
     }
     if (rc >= 3) {
-        g_hysteresis = Tokenizer_GetArgFloatDefault(3, g_hysteresis);
+        g_hysteresis = Tokenizer_GetArgFloatDefault(2, g_hysteresis);
     }
     if (rc >= 4) {
-        g_tempChannel = Tokenizer_GetArgIntegerDefault(4, -1);
+        g_tempChannel = Tokenizer_GetArgIntegerDefault(3, -1);
     }
     if (rc >= 5) {
-        g_setpointChannel = Tokenizer_GetArgIntegerDefault(5, -1);
+        g_setpointChannel = Tokenizer_GetArgIntegerDefault(4, -1);
     }
     if (rc >= 6) {
-        g_isActiveChannel = Tokenizer_GetArgIntegerDefault(6, -1);
+        g_isActiveChannel = Tokenizer_GetArgIntegerDefault(5, -1);
     }
     if (rc >= 7) {
-        g_alarmThreshold = Tokenizer_GetArgFloatDefault(7, g_alarmThreshold);
+        g_alarmThreshold = Tokenizer_GetArgFloatDefault(6, g_alarmThreshold);
     }
     if (rc >= 8) {
-        g_staleTimeoutSeconds = Tokenizer_GetArgIntegerDefault(8, g_staleTimeoutSeconds);
+        g_staleTimeoutSeconds = Tokenizer_GetArgIntegerDefault(7, g_staleTimeoutSeconds);
     }
-    addLogAdv(LOG_INFO, LOG_FEATURE_GENERAL, "Thermostat configured: relayCH=%i setpoint=%.2fC setpointCH=%i hyst=%.2f tempCH=%i isActiveCH=%i alarm=%.2f\n", g_relayChannel, g_setpoint, g_setpointChannel, g_hysteresis, g_tempChannel, g_isActiveChannel, g_alarmThreshold);
+    if (rc >= 9) {
+        g_minTemp = Tokenizer_GetArgFloatDefault(8, g_minTemp);
+    }
+    if (rc >= 10) {
+        g_maxTemp = Tokenizer_GetArgFloatDefault(9, g_maxTemp);
+    }
+    addLogAdv(LOG_INFO, LOG_FEATURE_GENERAL, "Thermostat configured: relayCH=%i setpoint=%.2fC setpointCH=%i hyst=%.2f tempCH=%i isActiveCH=%i alarm=%.2f min=%.2f max=%.2f\n", g_relayChannel, g_setpoint, g_setpointChannel, g_hysteresis, g_tempChannel, g_isActiveChannel, g_alarmThreshold, g_minTemp, g_maxTemp);
     return CMD_RES_OK;
 }
 
 
 static commandResult_t Cmd_Thermostat_Enable(const void* context, const char* cmd, const char* args, int flags) {
+    Tokenizer_TokenizeString(args, 0);
     int rc = Tokenizer_GetArgsCount();
     if (rc >= 1) {
-        g_isActive = Tokenizer_GetArgIntegerDefault(1, g_isActive);
+        const char *arg = Tokenizer_GetArg(0);
+        if(!stricmp(arg,"heat") || !stricmp(arg,"cool") || !stricmp(arg,"fan_only") || !stricmp(arg,"on")) {
+             g_isActive = 1;
+        } else if(!stricmp(arg,"off")) {
+             g_isActive = 0;
+        } else {
+             g_isActive = Tokenizer_GetArgIntegerDefault(0, g_isActive);
+        }
+        if (g_isActiveChannel >= 0) {
+            CHANNEL_Set(g_isActiveChannel, g_isActive, 0);
+        }
         addLogAdv(LOG_INFO, LOG_FEATURE_GENERAL, "Thermostat %s\n", g_isActive ? "enabled" : "disabled");
     }
     return CMD_RES_OK;
@@ -95,6 +118,8 @@ void Thermostat_driver_Init() {
     g_isActiveChannel = Tokenizer_GetArgIntegerDefault(6, -1);
     g_alarmThreshold = Tokenizer_GetArgFloatDefault(7, g_alarmThreshold);
     g_staleTimeoutSeconds = Tokenizer_GetArgIntegerDefault(8, g_staleTimeoutSeconds);
+    g_minTemp = Tokenizer_GetArgFloatDefault(9, g_minTemp);
+    g_maxTemp = Tokenizer_GetArgFloatDefault(10, g_maxTemp);
 
     CMD_RegisterCommand("THERMOSTAT_Set", Cmd_Thermostat_Set, NULL);
     // allow toggling on/off via thermostat control; manual relay commands ignored by OnEverySecond
@@ -102,7 +127,7 @@ void Thermostat_driver_Init() {
 
     g_driverEnabled = 1; // mark driver as active
     g_initialized = 1; // mark driver as initialized
-    addLogAdv(LOG_INFO, LOG_FEATURE_GENERAL, "Thermostat driver started: relayCH=%i setpoint=%.2fC hyst=%.2f tempCH=%i alarm=%.2f\n", g_relayChannel, g_setpoint, g_hysteresis, g_tempChannel, g_alarmThreshold);
+    addLogAdv(LOG_INFO, LOG_FEATURE_GENERAL, "Thermostat driver started: relayCH=%i setpoint=%.2fC hyst=%.2f tempCH=%i alarm=%.2f min=%.2f max=%.2f\n", g_relayChannel, g_setpoint, g_hysteresis, g_tempChannel, g_alarmThreshold, g_minTemp, g_maxTemp);
 }
 
 void Thermostat_AppendInformationToHTTPIndexPage(http_request_t *request, int bPreState) {
@@ -142,6 +167,7 @@ void Thermostat_AppendInformationToHTTPIndexPage(http_request_t *request, int bP
     hprintf255(request, "<p>Setpoint source: %s %i</p>", (g_setpointChannel >= 0) ? "channel" : "value", (g_setpointChannel >= 0) ? g_setpointChannel : (int)displayedSetpoint);
     hprintf255(request, "<p>Alarm threshold: %.2f C</p>", displayedAlarm);
     hprintf255(request, "<p>Stale timeout: %i s</p>", displayedStale);
+    hprintf255(request, "<p>Range: %.2f C - %.2f C</p>", g_minTemp, g_maxTemp);
     if (g_tempChannel >= 0 && ds_age != -2) {
         if (ds_age < 0) hprintf255(request, "<p>Sensor: <b>missing</b></p>");
         else hprintf255(request, "<p>Sensor: OK (last read %i s ago)</p>", ds_age);
@@ -159,23 +185,10 @@ void Thermostat_OnEverySecond() {
     if (!g_initialized) {
         return;
     }
-    
-    // When thermostat is active, force relay OFF immediately if g_isActive is false
-    // This overrides any manual relay commands; only thermostat logic can control relay
-    if (g_driverEnabled && g_relayChannel >= 0) {
-        int effectiveActive = g_isActive;
-        if (g_isActiveChannel >= 0) {
-            effectiveActive = CHANNEL_Get(g_isActiveChannel);
-        }
-        if (!effectiveActive && CHANNEL_Get(g_relayChannel) != 0) {
-            CHANNEL_Set(g_relayChannel, 0, 0);
-            addLogAdv(LOG_INFO, LOG_FEATURE_GENERAL, "Thermostat: g_isActive=0, forcing relay %i -> 0\n", g_relayChannel);
-            g_lastRelayState = 0;
-            return;
-        }
-    }
 
-    // Always check temperature and alarm threshold even if thermostat is disabled
+    // --- INPUT GATHERING ---
+
+    // 1. Get Temperature
     float curTemp = 0.0f;
     bool haveTemp = false;
     if (g_tempChannel >= 0) {
@@ -184,6 +197,63 @@ void Thermostat_OnEverySecond() {
     } else {
         haveTemp = CHANNEL_GetGenericTemperature(&curTemp);
     }
+
+    // 2. Get Effective Setpoint
+    float effectiveSetpoint = g_setpoint;
+    if (g_setpointChannel >= 0) {
+        effectiveSetpoint = CHANNEL_GetFinalValue(g_setpointChannel);
+    }
+
+    // 3. Get Effective Active state
+    int effectiveActive = g_isActive;
+    if (g_isActiveChannel >= 0) {
+        effectiveActive = CHANNEL_Get(g_isActiveChannel);
+    }
+
+    // --- MQTT REPORTING (Always run this, even if control logic aborts) ---
+    // Publish MQTT state topics for Home Assistant only on value changes
+    #if ENABLE_MQTT
+    {
+        // Publish current temperature as channel value
+        // Note: we might have temp from CHANNEL_GetFinalValue even if sensor is stale/missing
+        // but we assume if haveTemp is true, we can publish.
+        if (curTemp < g_lastPublishedTemp - 0.1f || curTemp > g_lastPublishedTemp + 0.1f) {
+            char pubBuf[32];
+            sprintf(pubBuf, "%.2f", curTemp);
+            MQTT_QueuePublish(CFG_GetMQTTClientId(), "temp", pubBuf, 0);
+            g_lastPublishedTemp = curTemp;
+        }
+        
+        // Publish setpoint as channel value
+        if (effectiveSetpoint < g_lastPublishedSetpoint - 0.1f || effectiveSetpoint > g_lastPublishedSetpoint + 0.1f) {
+            char pubBuf[32];
+            sprintf(pubBuf, "%.2f", effectiveSetpoint);
+            MQTT_QueuePublish(CFG_GetMQTTClientId(), "setpoint", pubBuf, 0);
+            g_lastPublishedSetpoint = effectiveSetpoint;
+        }
+        
+        // Publish mode state only if changed
+        int currentMode = effectiveActive ? 1 : 0;
+        if (currentMode != g_lastPublishedMode) {
+            MQTT_QueuePublish(CFG_GetMQTTClientId(), "mode", effectiveActive ? "heat" : "off", 0);
+            g_lastPublishedMode = currentMode;
+        }
+    }
+    #endif
+
+    // --- CONTROL LOGIC ---
+    
+    // When thermostat is active, force relay OFF immediately if g_isActive is false
+    // This overrides any manual relay commands; only thermostat logic can control relay
+    if (g_driverEnabled && g_relayChannel >= 0) {
+        if (!effectiveActive && CHANNEL_Get(g_relayChannel) != 0) {
+            CHANNEL_Set(g_relayChannel, 0, 0);
+            addLogAdv(LOG_INFO, LOG_FEATURE_GENERAL, "Thermostat: g_isActive=0, forcing relay %i -> 0\n", g_relayChannel);
+            g_lastRelayState = 0;
+            return;
+        }
+    }
+
     // if using a specific DS18 temp channel, ensure sensor is present (and was read at least once)
 #if ENABLE_DRIVER_DS1820_FULL
     if (g_tempChannel >= 0) {
@@ -266,18 +336,7 @@ void Thermostat_OnEverySecond() {
     }
 
     // determine active: channel overrides static flag
-    if (g_isActiveChannel >= 0) {
-        int chv = CHANNEL_Get(g_isActiveChannel);
-        if (!chv) return;
-    } else {
-        if (!g_isActive) return;
-    }
-
-    // effective setpoint (can be static float or read from a channel)
-    float effectiveSetpoint = g_setpoint;
-    if (g_setpointChannel >= 0) {
-        effectiveSetpoint = CHANNEL_GetFinalValue(g_setpointChannel);
-    }
+    if (!effectiveActive) return;
 
     float halfH = g_hysteresis * 0.5f;
     int newRelay = curRelay;
@@ -294,45 +353,13 @@ void Thermostat_OnEverySecond() {
     }
 
     g_lastRelayState = newRelay;
-    
-    // Publish MQTT state topics for Home Assistant only on value changes
-    #if ENABLE_MQTT
-    {
-        // Publish current temperature as channel value
-        if (curTemp < g_lastPublishedTemp - 0.1f || curTemp > g_lastPublishedTemp + 0.1f) {
-            char pubBuf[32];
-            sprintf(pubBuf, "%.2f", curTemp);
-            MQTT_QueuePublish(CFG_GetMQTTClientId(), "temp", pubBuf, 0);
-            g_lastPublishedTemp = curTemp;
-        }
-        
-        // Publish setpoint as channel value
-        if (effectiveSetpoint < g_lastPublishedSetpoint - 0.1f || effectiveSetpoint > g_lastPublishedSetpoint + 0.1f) {
-            char pubBuf[32];
-            sprintf(pubBuf, "%.2f", effectiveSetpoint);
-            MQTT_QueuePublish(CFG_GetMQTTClientId(), "setpoint", pubBuf, 0);
-            g_lastPublishedSetpoint = effectiveSetpoint;
-        }
-        
-        // Publish mode state only if changed
-        int effectiveActive = g_isActive;
-        if (g_isActiveChannel >= 0) {
-            effectiveActive = CHANNEL_Get(g_isActiveChannel);
-        }
-        int currentMode = effectiveActive ? 1 : 0;
-        if (currentMode != g_lastPublishedMode) {
-            MQTT_QueuePublish(CFG_GetMQTTClientId(), "mode", effectiveActive ? "heat" : "off", 0);
-            g_lastPublishedMode = currentMode;
-        }
-    }
-    #endif
 }
 
 #if ENABLE_HA_DISCOVERY
 HassDeviceInfo* Thermostat_GetHASSInfo() {
     // Use the built-in HASS HVAC helper function
     // Parameters: min_temp, max_temp, step, fanOptions, numFanOptions, swingOptions, numSwingOptions, swingHOptions, numSwingHOptions
-    HassDeviceInfo* info = hass_createHVAC(5.0f, 40.0f, 0.5f, NULL, 0, NULL, 0, NULL, 0);
+    HassDeviceInfo* info = hass_createHVAC(g_minTemp, g_maxTemp, 1, NULL, 0, NULL, 0, NULL, 0);
     
     if (info == NULL) {
         addLogAdv(LOG_ERROR, LOG_FEATURE_GENERAL, "Thermostat: Failed to create HASS HVAC info");
@@ -361,6 +388,12 @@ HassDeviceInfo* Thermostat_GetHASSInfo() {
     // mode_command_topic: receives "off" or "heat" and we convert to 0/1
     sprintf(cmdBuf, "cmnd/%s/THERMOSTAT_Enable", CFG_GetMQTTClientId());
     cJSON_ReplaceItemInObject(info->root, "mode_command_topic", cJSON_CreateString(cmdBuf));
+
+    // Limit modes to off and heat only
+    cJSON* modes = cJSON_CreateArray();
+    cJSON_AddItemToArray(modes, cJSON_CreateString("off"));
+    cJSON_AddItemToArray(modes, cJSON_CreateString("heat"));
+    cJSON_ReplaceItemInObject(info->root, "modes", modes);
     
     // Note: We use simple numeric values for temperature and 0/1 for mode enable/disable
     // The device will publish temp/setpoint as numbers and mode as "off"/"heat" strings
