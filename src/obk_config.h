@@ -4,6 +4,9 @@
 #ifndef OBK_CONFIG_H
 #define OBK_CONFIG_H
 
+// Define default OBK_VARIANT - must be defined before being used in conditionals
+#define OBK_VARIANT 0
+
 #define OBK_VARIANT_DEFAULT						0
 #define OBK_VARIANT_BERRY						1
 #define OBK_VARIANT_TUYAMCU						2
@@ -283,15 +286,15 @@
 #endif
 // parse things like $CH1 or $hour etc
 #define ENABLE_EXPAND_CONSTANT					1
-#define ENABLE_DRIVER_DHT						1
-#define ENABLE_DRIVER_AHT2X						1
-#define ENABLE_DRIVER_TMGN						0
+//#define ENABLE_DRIVER_DHT						1
+//#define ENABLE_DRIVER_AHT2X						1
+//#define ENABLE_DRIVER_TMGN						0
 #define ENABLE_DRIVER_DRAWERS					0
 #define ENABLE_TASMOTA_JSON						1
 // #define ENABLE_DRIVER_BMPI2C					1
 #define ENABLE_DRIVER_DDP						1
 #define ENABLE_DRIVER_SSDP						1
-#define ENABLE_DRIVER_IR						1
+//#define ENABLE_DRIVER_IR						1
 #define ENABLE_DRIVER_RC						1
 // #define ENABLE_DRIVER_IR2					1
 #define ENABLE_DRIVER_DS1820					1
@@ -304,6 +307,9 @@
 #define NEW_TCP_SERVER							1
 #endif
 #define ENABLE_DRIVER_NEO6M						1
+
+// Enable thermostat driver for basic temp->relay control
+#define ENABLE_DRIVER_THERMOSTAT				1
 
 // ENABLE_I2C_ is a syntax for
 // our I2C system defines for drv_i2c_main.c

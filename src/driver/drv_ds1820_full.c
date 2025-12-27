@@ -277,6 +277,15 @@ bool ds18b20_used_channel(int ch) {
 	return false;
 };
 
+int DS18B20_get_last_read_seconds_for_channel(int ch) {
+	for (int i = 0; i < ds18_count; ++i) {
+		if (ds18b20devices.channel[i] == ch) {
+			return (int)ds18b20devices.last_read[i];
+		}
+	}
+	return -1;
+}
+
 bool ds18b20_getGPIO(const uint8_t* devaddr,uint8_t *GPIO)
 {
 	int i=0;

@@ -25,3 +25,5 @@ bool isConversionComplete();
 void reset_search();
 bool search(uint8_t *newAddr, bool search_mode, int Pin);
 char *DS1820_full_jsonSensors();
+// returns seconds since last successful reading for channel ch, or -1 if unknown
+int DS18B20_get_last_read_seconds_for_channel(int ch);

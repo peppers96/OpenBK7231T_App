@@ -10,6 +10,7 @@
 #include "../driver/drv_girierMCU.h"
 #include "../driver/drv_public.h"
 #include "../driver/drv_bl_shared.h"
+#include "../driver/drv_thermostat.h"
 #include "../hal/hal_wifi.h"
 #include "../hal/hal_pins.h"
 #include "../hal/hal_flashConfig.h"
@@ -2482,6 +2483,15 @@ void doHomeAssistantDiscovery(const char* topic, http_request_t* request) {
 		hass_free_device_info(dev_info);
 		discoveryQueued = true;
 
+	}
+	// Thermostat driver HASS discovery
+	if (DRV_IsRunning("THERMOSTAT")) {
+		HassDeviceInfo* thermostat_info = Thermostat_GetHASSInfo();
+		if (thermostat_info != NULL) {
+			MQTT_QueuePublish(topic, thermostat_info->channel, hass_build_discovery_json(thermostat_info), OBK_PUBLISH_FLAG_RETAIN);
+			hass_free_device_info(thermostat_info);
+			discoveryQueued = true;
+		}
 	}
 	if (discoveryQueued) {
 		MQTT_InvokeCommandAtEnd(PublishChannels);

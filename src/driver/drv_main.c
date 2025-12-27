@@ -19,6 +19,7 @@
 #include "drv_ds1820_simple.h"
 #include "drv_ds1820_full.h"
 #include "drv_ds1820_common.h"
+#include "drv_thermostat.h"
 #include "drv_ds3231.h"
 #include "drv_hlw8112.h"
 
@@ -1208,6 +1209,23 @@ static driver_t g_drivers[] = {
 	DS1820_full_driver_Init,                 // Init
 	DS1820_full_OnEverySecond,               // onEverySecond
 	DS1820_full_AppendInformationToHTTPIndexPage, // appendInformationToHTTPIndexPage
+	NULL,                                    // runQuickTick
+	NULL,                                    // stopFunction
+	NULL,                                    // onChannelChanged
+	NULL,                                    // onHassDiscovery
+	false,                                   // loaded
+	},
+#endif
+
+#if ENABLE_DRIVER_THERMOSTAT
+	//drvdetail:{"name":"THERMOSTAT",
+	//drvdetail:"title":"Basic thermostat",
+	//drvdetail:"descr":"Controls a relay from a temperature sensor (DS18B20) using setpoint+hysteresis.",
+	//drvdetail:"requires":""
+	{ "THERMOSTAT",                         // Driver Name
+	Thermostat_driver_Init,                 // Init
+	Thermostat_OnEverySecond,               // onEverySecond
+	Thermostat_AppendInformationToHTTPIndexPage, // appendInformationToHTTPIndexPage
 	NULL,                                    // runQuickTick
 	NULL,                                    // stopFunction
 	NULL,                                    // onChannelChanged

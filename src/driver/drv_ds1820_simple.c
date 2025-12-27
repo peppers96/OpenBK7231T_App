@@ -25,6 +25,18 @@ int DS1820_getTemp()
 	return t;
 }
 
+int DS1820_get_last_read_seconds_for_channel(int ch) {
+	// if Pin is set and its channel matches, return age in seconds since lastconv
+	if (Pin >= 0) {
+		int chForPin = g_cfg.pins.channels[Pin];
+		if (chForPin == ch) {
+			if (lastconv <= 0) return -1;
+			return (int)(g_secondsElapsed - lastconv);
+		}
+	}
+	return -1;
+}
+
 static commandResult_t Cmd_SetResolution(const void* context, const char* cmd, const char* args, int cmdFlags) {
 	Tokenizer_TokenizeString(args, 0);
 	if (Tokenizer_CheckArgsCountAndPrintWarning(cmd, 1)) {
